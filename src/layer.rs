@@ -1,4 +1,7 @@
-use crate::{neuron::Neuron, value::Value};
+use crate::{
+    neuron::{Linearity, Neuron},
+    value::Value,
+};
 use rand::Rng;
 
 #[derive(Debug)]
@@ -7,9 +10,9 @@ pub struct Layer<const I: usize, const O: usize> {
 }
 
 impl<const I: usize, const O: usize> Layer<I, O> {
-    pub fn new<R: Rng>(nonlin: bool, rng: &mut R) -> Self {
+    pub fn new<R: Rng>(linearity: Linearity, rng: &mut R) -> Self {
         Self {
-            neurons: core::array::from_fn(|_| Neuron::new(nonlin, rng)),
+            neurons: core::array::from_fn(|_| Neuron::new(linearity.clone(), rng)),
         }
     }
 

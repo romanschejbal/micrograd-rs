@@ -43,7 +43,7 @@ fn main() {
 
     let mlp = MultiLayerPerceptron::<3, 1, 1, 1>::new(&mut rng);
 
-    for _k in 0..5000 {
+    for _k in 0..50 {
         let ys_pred = xs.iter().map(|x| mlp.forward(&x)).collect::<Vec<_>>();
 
         // mse loss

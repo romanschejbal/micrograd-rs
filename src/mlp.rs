@@ -1,4 +1,4 @@
-use crate::{layer::Layer, value::Value};
+use crate::{layer::Layer, neuron::Linearity, value::Value};
 use rand::Rng;
 
 #[derive(Debug)]
@@ -13,9 +13,9 @@ impl<const I: usize, const H: usize, const N: usize, const O: usize>
 {
     pub fn new<R: Rng>(rng: &mut R) -> Self {
         Self {
-            input_layer: Layer::new(true, rng),
-            hidden_layers: core::array::from_fn(|_| Layer::new(true, rng)),
-            output_layer: Layer::new(false, rng),
+            input_layer: Layer::new(Linearity::Tanh, rng),
+            hidden_layers: core::array::from_fn(|_| Layer::new(Linearity::Tanh, rng)),
+            output_layer: Layer::new(Linearity::Linear, rng),
         }
     }
 
