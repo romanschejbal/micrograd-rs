@@ -36,7 +36,7 @@ let mlp = MultiLayerPerceptron::<3, 1, 1, 1>::new(&mut rng);
 // Example training loop
 for _ in 0..500 {
     let ys_pred = xs.iter().map(|x| mlp.forward(&x)).collect::<Vec<_>>();
-    // Mean Squwared Error loss calculation
+    // Mean Squared Error loss calculation
     let loss = ys_pred.iter().enumerate().map(|(i, y_pred)| (y_pred[0].clone() - ys[i].clone()).pow(2.)).sum::<Value>();
     println!("Loss: {:.4}, Predictions: {:?}", loss.value(), ys_pred.iter().map(|y| y[0].value()).collect::<Vec<_>>());
 
