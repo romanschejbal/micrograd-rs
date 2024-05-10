@@ -38,7 +38,11 @@ for _ in 0..500 {
     let ys_pred = xs.iter().map(|x| mlp.forward(&x)).collect::<Vec<_>>();
     // Mean Squared Error loss calculation
     let loss = ys_pred.iter().enumerate().map(|(i, y_pred)| (y_pred[0].clone() - ys[i].clone()).pow(2.)).sum::<Value>();
-    println!("Loss: {:.4}, Predictions: {:?}", loss.value(), ys_pred.iter().map(|y| y[0].value()).collect::<Vec<_>>());
+
+    // L2 regularization
+    loss = loss + mlp.weights().map(|w| w.clone().pow(2.)).sum::<Value>() * Value::new(0.01, "lambda");
+
+    println!("Loss: {:.4}, Predictions: {:?}", loss.value(), ys_pred.iter().map(|y| y[0].value()).collect::<Vec<_>>()) * Value::new(1. / ys_pred.len() as f64, "n");
 
     loss.backward();
     mlp.nudge(0.01);

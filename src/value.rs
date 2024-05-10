@@ -190,7 +190,7 @@ impl Mul for Value {
 impl Sum for Value {
     fn sum<I: Iterator<Item = Self>>(iter: I) -> Self {
         iter.into_iter()
-            .fold(Self::new(0., "Sum"), |acc, value| acc + value)
+            .fold(Self::new(0., "SUM"), |acc, value| acc + value)
     }
 }
 
