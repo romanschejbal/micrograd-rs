@@ -42,28 +42,36 @@ fn main() {
     // let mut rng = rand::thread_rng();
 
     let mlp = MultiLayerPerceptron::<3, 1, 1, 1>::new(&mut rng);
+    let mut loss = Value::new(0., "loss");
 
-    for _k in 0..50 {
+    for k in 0..500000 {
         let ys_pred = xs.iter().map(|x| mlp.forward(&x)).collect::<Vec<_>>();
 
         // mse loss
-        let loss = ys_pred
+        loss = ys_pred
             .iter()
             .enumerate()
             .map(|(i, y_pred)| (y_pred[0].clone() - ys[i].clone()).pow(2.))
             .sum::<Value>();
 
-        let lr = 0.01;
+        // regularization
+        loss = loss
+            + mlp.weights().map(|w| w.clone().pow(2.)).sum::<Value>() * Value::new(0.01, "lambda");
 
-        println!(
-            "Loss: {loss:#?}, Predictions: {ys:?}, LR = {lr}",
-            loss = loss.value(),
-            ys = ys_pred.iter().map(|y| y[0].value()).collect::<Vec<_>>()
-        );
+        if k % 1000 == 0 {
+            println!(
+                "Iteration: {k: >5} | Loss: {loss: >8.5} | Prediction: {ys:?}",
+                loss = loss.value(),
+                ys = ys_pred.iter().map(|y| y[0].value()).collect::<Vec<_>>()
+            );
+        }
+
+        let lr = 0.01;
 
         loss.backward();
         mlp.nudge(lr);
     }
+    println!("Loss: {loss:#?}", loss = loss.value());
 
     println!("No. of parameters: {}", mlp.parameters_count())
 }

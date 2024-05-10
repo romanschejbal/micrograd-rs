@@ -35,6 +35,15 @@ impl<const I: usize, const H: usize, const N: usize, const O: usize>
         self.output_layer.nudge(learning_rate);
     }
 
+    pub fn weights(&self) -> impl Iterator<Item = &Value> {
+        self.input_layer.weights().chain(
+            self.hidden_layers
+                .iter()
+                .flat_map(|l| l.weights())
+                .chain(self.output_layer.weights()),
+        )
+    }
+
     pub fn parameters_count(&self) -> usize {
         self.input_layer.parameters_count()
             + self

@@ -46,6 +46,10 @@ impl<const I: usize> Neuron<I> {
         }
     }
 
+    pub fn weights(&self) -> &[Value] {
+        &self.weights
+    }
+
     pub fn parameters_count(&self) -> usize {
         self.weights.len() + 1 // bias
     }
