@@ -30,7 +30,7 @@ impl<const I: usize, const O: usize> Layer<I, O> {
         self.neurons.iter().flat_map(|n| n.weights())
     }
 
-    pub fn parameters_count(&self) -> usize {
-        self.neurons.iter().map(|n| n.parameters_count()).sum()
+    pub fn parameters(&self) -> impl Iterator<Item = &Value> {
+        self.neurons.iter().flat_map(|n| n.parameters())
     }
 }

@@ -14,7 +14,7 @@ impl<const I: usize, const H: usize, const N: usize, const O: usize>
     pub fn new<R: Rng>(rng: &mut R) -> Self {
         Self {
             input_layer: Layer::new(Linearity::Tanh, rng),
-            hidden_layers: core::array::from_fn(|_| Layer::new(Linearity::Tanh, rng)),
+            hidden_layers: core::array::from_fn(|_| Layer::new(Linearity::ReLu, rng)),
             output_layer: Layer::new(Linearity::Linear, rng),
         }
     }
@@ -44,13 +44,12 @@ impl<const I: usize, const H: usize, const N: usize, const O: usize>
         )
     }
 
-    pub fn parameters_count(&self) -> usize {
-        self.input_layer.parameters_count()
-            + self
-                .hidden_layers
+    pub fn parameters(&self) -> impl Iterator<Item = &Value> {
+        self.input_layer.parameters().chain(
+            self.hidden_layers
                 .iter()
-                .map(|l| l.parameters_count())
-                .sum::<usize>()
-            + self.output_layer.parameters_count()
+                .flat_map(|l| l.parameters())
+                .chain(self.output_layer.parameters()),
+        )
     }
 }

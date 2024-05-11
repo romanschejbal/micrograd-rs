@@ -50,7 +50,7 @@ impl<const I: usize> Neuron<I> {
         &self.weights
     }
 
-    pub fn parameters_count(&self) -> usize {
-        self.weights.len() + 1 // bias
+    pub fn parameters(&self) -> impl Iterator<Item = &Value> {
+        self.weights.iter().chain(std::iter::once(&self.bias))
     }
 }

@@ -78,6 +78,14 @@ impl Value {
         inner.data -= learning_rate * grad;
         inner.gradient = 0.0;
     }
+
+    pub fn data(&self) -> f64 {
+        self.inner.borrow().data
+    }
+
+    pub fn set_data(&self, data: f64) {
+        self.inner.borrow_mut().data = data;
+    }
 }
 
 type SharedValueInner = Rc<RefCell<ValueInner>>;
