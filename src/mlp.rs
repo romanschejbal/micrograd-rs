@@ -1,34 +1,43 @@
-use crate::{layer::Layer, neuron::Linearity, value::Value};
+use crate::{
+    layer::{InputLayer, Layer},
+    neuron::{Linearity, Neuron},
+    value::Value,
+};
 use rand::Rng;
 
 #[derive(Debug)]
-pub struct MultiLayerPerceptron<const I: usize, const H: usize, const N: usize, const O: usize> {
-    input_layer: Layer<I, N>,
-    hidden_layers: [Layer<N, N>; H],
-    output_layer: Layer<N, O>,
+pub struct MultiLayerPerceptron<const I: usize> {
+    input_layer: InputLayer<I>,
+    hidden_layers: Vec<Layer<Neuron>>,
+    output_layer: Layer<Neuron>,
 }
 
-impl<const I: usize, const H: usize, const N: usize, const O: usize>
-    MultiLayerPerceptron<I, H, N, O>
-{
-    pub fn new<R: Rng>(rng: &mut R) -> Self {
+impl<const I: usize> MultiLayerPerceptron<I> {
+    pub fn new<R: Rng>(
+        rng: &mut R,
+        hidden_layers: usize,
+        neurons: usize,
+        linearity: Linearity,
+    ) -> Self {
         Self {
-            input_layer: Layer::new(Linearity::Tanh, rng),
-            hidden_layers: core::array::from_fn(|_| Layer::new(Linearity::ReLu, rng)),
-            output_layer: Layer::new(Linearity::Linear, rng),
+            input_layer: InputLayer::new(linearity.clone(), neurons, rng),
+            hidden_layers: (0..hidden_layers)
+                .map(|_| Layer::<Neuron>::new(linearity.clone(), neurons, neurons, rng))
+                .collect(),
+            output_layer: Layer::<Neuron>::new(Linearity::Linear, 1, neurons, rng),
         }
     }
 
-    pub fn forward(&self, x: &[Value; I]) -> [Value; O] {
-        let mut x = self.input_layer.forward(x);
-        for layer in self.hidden_layers.iter() {
+    pub fn forward(&mut self, x: &[Value; I]) -> &[Value] {
+        let mut x = self.input_layer.as_mut().forward(x);
+        for layer in self.hidden_layers.iter_mut() {
             x = layer.forward(&x);
         }
         self.output_layer.forward(&x)
     }
 
     pub fn nudge(&self, learning_rate: f64) {
-        self.input_layer.nudge(learning_rate);
+        self.input_layer.as_ref().nudge(learning_rate);
         for layer in self.hidden_layers.iter() {
             layer.nudge(learning_rate);
         }
@@ -36,7 +45,7 @@ impl<const I: usize, const H: usize, const N: usize, const O: usize>
     }
 
     pub fn weights(&self) -> impl Iterator<Item = &Value> {
-        self.input_layer.weights().chain(
+        self.input_layer.as_ref().weights().chain(
             self.hidden_layers
                 .iter()
                 .flat_map(|l| l.weights())
@@ -45,7 +54,7 @@ impl<const I: usize, const H: usize, const N: usize, const O: usize>
     }
 
     pub fn parameters(&self) -> impl Iterator<Item = &Value> {
-        self.input_layer.parameters().chain(
+        self.input_layer.as_ref().parameters().chain(
             self.hidden_layers
                 .iter()
                 .flat_map(|l| l.parameters())

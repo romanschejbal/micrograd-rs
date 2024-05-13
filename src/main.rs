@@ -1,16 +1,52 @@
 pub(crate) mod layer;
+// pub(crate) mod lstm;
 pub(crate) mod mlp;
 pub(crate) mod neuron;
+// pub(crate) mod rnn;
 pub(crate) mod value;
 
-use std::io::Write;
-
+// use crate::{lstm::LSTM, rnn::RecurrentNeuralNetwork};
+use clap::Parser;
 use mlp::MultiLayerPerceptron;
 use rand::{Rng, SeedableRng};
+use serde::{Deserialize, Serialize};
+use std::io::Write;
 use value::Value;
 
+#[derive(Parser)]
+#[command(version, about)]
+struct Cli {
+    #[clap(short, long, default_value = "1")]
+    hidden_layers: usize,
+
+    #[clap(short, long, default_value = "1")]
+    neurons_per_layer: usize,
+}
+
 fn main() {
+    let args = Cli::parse();
+
     let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234);
+
+    // // LSTM
+    // let mut lstm = LSTM::<1, 1>::new(&mut rng);
+    // loop {
+    //     let mut buf = String::new();
+    //     print!("Enter value: ");
+    //     std::io::stdout().flush().unwrap();
+    //     std::io::stdin().read_line(&mut buf).unwrap();
+    //     let Ok(value) = buf.trim().parse::<f64>() else {
+    //         continue;
+    //     };
+
+    //     let next = lstm.step(&[Value::new(value, "x")]);
+    //     let loss = (next[0].clone() - Value::new(value, "y")).pow(2.);
+
+    //     loss.backward();
+    //     lstm.nudge(0.01);
+
+    //     println!("Prediction: {} | Loss: {}", next[0].value(), loss.value());
+    // }
 
     let xs = (0..100)
         .into_iter()
@@ -30,7 +66,12 @@ fn main() {
         .map(|[x]| [Value::new(x, "x")]) //, Value::new(a, "a"), Value::new(b, "b")])
         .collect::<Vec<_>>();
 
-    let mlp = MultiLayerPerceptron::<1, 1, 3, 1>::new(&mut rng);
+    let mut mlp = MultiLayerPerceptron::<1>::new(
+        &mut rng,
+        args.hidden_layers,
+        args.neurons_per_layer,
+        neuron::Linearity::Tanh,
+    );
 
     println!("No. of parameters: {}", mlp.parameters().count());
 
@@ -41,11 +82,11 @@ fn main() {
 
     // deseserialize if file exists
     if let Ok(file) = std::fs::File::open(&model_filename) {
-        let (te, values): (usize, Vec<f64>) = serde_json::from_reader(file).unwrap();
+        let model: Model = serde_json::from_reader(file).unwrap();
         mlp.parameters()
-            .zip(values)
+            .zip(model.parameters)
             .for_each(|(v, data)| v.set_data(data));
-        total_epochs = te;
+        total_epochs = model.total_epochs;
     }
 
     loop {
@@ -60,12 +101,13 @@ fn main() {
             break;
         }
 
+        let mut loss_final = 0.;
         let now = std::time::Instant::now();
         for k in 0..no_of_epochs {
             let ys_pred = xs
                 .iter()
                 .zip(ys_ground.iter())
-                .map(|(x, y)| (mlp.forward(&x), y))
+                .map(|(x, y)| (mlp.forward(x).to_vec(), y))
                 .collect::<Vec<_>>();
 
             // mse loss
@@ -103,12 +145,18 @@ fn main() {
                 );
 
                 // serialize
-                serialize(&model_filename, mlp.parameters(), total_epochs);
+                serialize(
+                    &model_filename,
+                    mlp.parameters(),
+                    total_epochs,
+                    loss.value(),
+                );
+                loss_final = loss.value();
             }
 
             total_epochs += 1;
         }
-        serialize(&model_filename, mlp.parameters(), total_epochs);
+        serialize(&model_filename, mlp.parameters(), total_epochs, loss_final);
         let took = now.elapsed().as_secs_f64();
         println!(
             "Final loss: {loss:#?} | Time: {took:.2}s | Total no. of epochs: {total_epochs}",
@@ -121,11 +169,23 @@ fn serialize<'a>(
     filename: &'a str,
     parameters: impl Iterator<Item = &'a Value>,
     total_epochs: usize,
+    loss: f64,
 ) {
-    let values = parameters.map(|v| v.data()).collect::<Vec<_>>();
+    let parameters = parameters.map(|v| v.data()).collect::<Vec<_>>();
     serde_json::to_writer_pretty(
         std::fs::File::create(&filename).unwrap(),
-        &(total_epochs, values),
+        &Model {
+            total_epochs,
+            parameters,
+            loss,
+        },
     )
     .unwrap();
+}
+
+#[derive(Serialize, Deserialize)]
+struct Model {
+    loss: f64,
+    total_epochs: usize,
+    parameters: Vec<f64>,
 }
