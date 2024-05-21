@@ -49,6 +49,17 @@ impl Value {
         )
     }
 
+    pub fn sigmoid(self) -> Self {
+        let data = self.inner.borrow().data;
+        let sigmoid_value = 1.0 / (1.0 + (-data).exp());
+
+        Self::new_with_children(
+            sigmoid_value,
+            format!("sigmoid({})", self.inner.borrow().label),
+            Operation::Sigmoid(self.inner.clone()),
+        )
+    }
+
     pub fn relu(self) -> Self {
         Self::new_with_children(
             if self.inner.borrow().data < 0. {
@@ -77,6 +88,14 @@ impl Value {
 
         inner.data -= learning_rate * grad;
         inner.gradient = 0.0;
+    }
+
+    pub fn data(&self) -> f64 {
+        self.inner.borrow().data
+    }
+
+    pub fn set_data(&self, data: f64) {
+        self.inner.borrow_mut().data = data;
     }
 }
 
@@ -132,6 +151,13 @@ impl ValueInner {
                 } else {
                     0.
                 };
+
+                value.borrow().backward();
+            }
+            Operation::Sigmoid(value) => {
+                let sigmoid_value = self.data; // this is σ(x)
+                let sigmoid_derivative = sigmoid_value * (1.0 - sigmoid_value);
+                value.borrow_mut().gradient += sigmoid_derivative * self.gradient;
 
                 value.borrow().backward();
             }
@@ -203,4 +229,5 @@ enum Operation {
     Pow(SharedValueInner, f64),
     Tanh(SharedValueInner),
     ReLu(SharedValueInner),
+    Sigmoid(SharedValueInner),
 }
