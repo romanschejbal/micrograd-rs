@@ -1,5 +1,6 @@
 use std::{
     cell::RefCell,
+    collections::HashSet,
     iter::Sum,
     ops::{Add, Mul, Sub},
     rc::Rc,
@@ -62,9 +63,65 @@ impl Value {
     }
 
     pub fn backward(&self) {
+        // Build topological order
+        let topo = build_topo(&self.inner);
+
+        // Set root gradient to 1
         self.inner.borrow_mut().gradient = 1.;
 
-        self.inner.borrow().backward();
+        // Iterate in reverse topological order
+        for node in topo.iter().rev() {
+            let inner = node.borrow();
+            let grad = inner.gradient;
+            let data = inner.data;
+            match &inner.op {
+                Operation::Const => (),
+                Operation::Add(left, right) => {
+                    let left = Rc::clone(left);
+                    let right = Rc::clone(right);
+                    drop(inner);
+                    left.borrow_mut().gradient += grad;
+                    right.borrow_mut().gradient += grad;
+                }
+                Operation::Sub(left, right) => {
+                    let left = Rc::clone(left);
+                    let right = Rc::clone(right);
+                    drop(inner);
+                    left.borrow_mut().gradient += grad;
+                    right.borrow_mut().gradient -= grad;
+                }
+                Operation::Mul(left, right) => {
+                    let left_rc = Rc::clone(left);
+                    let right_rc = Rc::clone(right);
+                    let left_data = left.borrow().data;
+                    let right_data = right.borrow().data;
+                    drop(inner);
+                    left_rc.borrow_mut().gradient += right_data * grad;
+                    right_rc.borrow_mut().gradient += left_data * grad;
+                }
+                Operation::Pow(value, exp) => {
+                    let value = Rc::clone(value);
+                    let exp = *exp;
+                    drop(inner);
+                    let v = value.borrow().data;
+                    value.borrow_mut().gradient += (exp * v.powf(exp - 1.0)) * grad;
+                }
+                Operation::Tanh(_value) => {
+                    let value = match &node.borrow().op {
+                        Operation::Tanh(v) => Rc::clone(v),
+                        _ => unreachable!(),
+                    };
+                    value.borrow_mut().gradient += (1.0 - data.powf(2.0)) * grad;
+                }
+                Operation::ReLu(_value) => {
+                    let value = match &node.borrow().op {
+                        Operation::ReLu(v) => Rc::clone(v),
+                        _ => unreachable!(),
+                    };
+                    value.borrow_mut().gradient += if data > 0. { grad } else { 0. };
+                }
+            }
+        }
     }
 
     pub fn value(&self) -> f64 {
@@ -73,10 +130,7 @@ impl Value {
 
     pub fn nudge(&self, learning_rate: f64) {
         let grad = self.inner.borrow().gradient;
-        let mut inner = self.inner.borrow_mut();
-
-        inner.data -= learning_rate * grad;
-        inner.gradient = 0.0;
+        self.inner.borrow_mut().data -= learning_rate * grad;
     }
 
     pub fn data(&self) -> f64 {
@@ -86,6 +140,61 @@ impl Value {
     pub fn set_data(&self, data: f64) {
         self.inner.borrow_mut().data = data;
     }
+
+    pub fn zero_grad(&self) {
+        self.inner.borrow_mut().gradient = 0.0;
+    }
+
+    pub fn gradient(&self) -> f64 {
+        self.inner.borrow().gradient
+    }
+
+    pub fn add_gradient(&self, grad: f64) {
+        self.inner.borrow_mut().gradient += grad;
+    }
+}
+
+fn build_topo(root: &SharedValueInner) -> Vec<SharedValueInner> {
+    let mut visited: HashSet<*const RefCell<ValueInner>> = HashSet::new();
+    let mut topo: Vec<SharedValueInner> = Vec::new();
+
+    fn visit(
+        node: &SharedValueInner,
+        visited: &mut HashSet<*const RefCell<ValueInner>>,
+        topo: &mut Vec<SharedValueInner>,
+    ) {
+        let ptr = Rc::as_ptr(node);
+        if visited.contains(&ptr) {
+            return;
+        }
+        visited.insert(ptr);
+
+        let inner = node.borrow();
+        match &inner.op {
+            Operation::Const => (),
+            Operation::Add(left, right)
+            | Operation::Sub(left, right)
+            | Operation::Mul(left, right) => {
+                let left = Rc::clone(left);
+                let right = Rc::clone(right);
+                drop(inner);
+                visit(&left, visited, topo);
+                visit(&right, visited, topo);
+            }
+            Operation::Pow(value, _)
+            | Operation::Tanh(value)
+            | Operation::ReLu(value) => {
+                let value = Rc::clone(value);
+                drop(inner);
+                visit(&value, visited, topo);
+            }
+        }
+
+        topo.push(Rc::clone(node));
+    }
+
+    visit(root, &mut visited, &mut topo);
+    topo
 }
 
 type SharedValueInner = Rc<RefCell<ValueInner>>;
@@ -96,55 +205,6 @@ pub struct ValueInner {
     label: String,
     op: Operation,
     gradient: f64,
-}
-
-impl ValueInner {
-    fn backward(&self) {
-        match &self.op {
-            Operation::Const => (),
-            Operation::Add(left, right) => {
-                left.borrow_mut().gradient += self.gradient;
-                right.borrow_mut().gradient += self.gradient;
-
-                left.borrow().backward();
-                right.borrow().backward();
-            }
-            Operation::Sub(left, right) => {
-                left.borrow_mut().gradient += self.gradient;
-                right.borrow_mut().gradient -= self.gradient;
-
-                left.borrow().backward();
-                right.borrow().backward();
-            }
-            Operation::Mul(left, right) => {
-                left.borrow_mut().gradient += right.borrow().data * self.gradient;
-                right.borrow_mut().gradient += left.borrow().data * self.gradient;
-
-                left.borrow().backward();
-                right.borrow().backward();
-            }
-            Operation::Pow(value, exp) => {
-                let v = value.borrow().data;
-                value.borrow_mut().gradient += (exp * v.powf(*exp - 1.0)) * self.gradient;
-
-                value.borrow().backward();
-            }
-            Operation::Tanh(value) => {
-                value.borrow_mut().gradient += (1.0 - self.data.powf(2.0)) * self.gradient;
-
-                value.borrow().backward();
-            }
-            Operation::ReLu(value) => {
-                value.borrow_mut().gradient += if self.data > 0. {
-                    self.data * self.gradient
-                } else {
-                    0.
-                };
-
-                value.borrow().backward();
-            }
-        }
-    }
 }
 
 impl Add for Value {

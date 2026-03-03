@@ -26,6 +26,15 @@ impl<const I: usize> Neuron<I> {
         }
     }
 
+    pub fn from_params(linearity: Linearity, params: &[f64]) -> Self {
+        assert!(params.len() >= I + 1, "need at least {} params", I + 1);
+        Self {
+            linearity,
+            weights: core::array::from_fn(|i| Value::new(params[i], format!("w{}", i + 1))),
+            bias: Value::new(params[I], "b".to_string()),
+        }
+    }
+
     pub fn forward(&self, x: &[Value; I]) -> Value {
         let sum = self
             .weights
@@ -43,6 +52,13 @@ impl<const I: usize> Neuron<I> {
         self.bias.nudge(learning_rate);
         for weight in self.weights.iter() {
             weight.nudge(learning_rate);
+        }
+    }
+
+    pub fn zero_grad(&self) {
+        self.bias.zero_grad();
+        for weight in self.weights.iter() {
+            weight.zero_grad();
         }
     }
 

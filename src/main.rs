@@ -5,41 +5,36 @@ pub(crate) mod value;
 
 use std::io::Write;
 
-use mlp::MultiLayerPerceptron;
+use mlp::{compute_sample_gradients, MultiLayerPerceptron};
 use rand::{Rng, SeedableRng};
+use rayon::prelude::*;
 use value::Value;
 
 fn main() {
     let mut rng = rand_chacha::ChaCha8Rng::seed_from_u64(1234);
 
-    let xs = (0..100)
-        .into_iter()
+    let xs: Vec<[f64; 1]> = (0..100)
         .map(|_| {
-            let x = rng.gen_range(-1.0..1.0);
+            let x: f64 = rng.gen_range(-1.0..1.0);
             [x]
         })
-        .collect::<Vec<_>>();
+        .collect();
 
-    let ys_ground = xs
+    let ys: Vec<[f64; 1]> = xs
         .iter()
-        .map(|[x]| Value::new((*x as f64).powi(2) + x * 2. + 4., "y"))
-        .collect::<Vec<_>>();
-
-    let xs = xs
-        .into_iter()
-        .map(|[x]| [Value::new(x, "x")]) //, Value::new(a, "a"), Value::new(b, "b")])
-        .collect::<Vec<_>>();
+        .map(|[x]| [x.powi(2) + x * 2. + 4.])
+        .collect();
 
     let mlp = MultiLayerPerceptron::<1, 1, 3, 1>::new(&mut rng);
 
-    println!("No. of parameters: {}", mlp.parameters().count());
+    let param_count = mlp.parameters().count();
+    println!("No. of parameters: {param_count}");
 
-    let mut loss = Value::new(0., "loss");
     let mut total_epochs = 0;
 
-    let model_filename = format!("model_{}.json", mlp.parameters().count());
+    let model_filename = format!("model_{}.json", param_count);
 
-    // deseserialize if file exists
+    // deserialize if file exists
     if let Ok(file) = std::fs::File::open(&model_filename) {
         let (te, values): (usize, Vec<f64>) = serde_json::from_reader(file).unwrap();
         mlp.parameters()
@@ -61,45 +56,56 @@ fn main() {
         }
 
         let now = std::time::Instant::now();
+        let mut last_loss = 0.0;
+
         for k in 0..no_of_epochs {
-            let ys_pred = xs
-                .iter()
-                .zip(ys_ground.iter())
-                .map(|(x, y)| (mlp.forward(&x), y))
-                .collect::<Vec<_>>();
+            let snapshot = mlp.snapshot_params();
+            let n_samples = xs.len() as f64;
 
-            // mse loss
-            loss = ys_pred
-                .iter()
-                .map(|(y_pred, y_ground)| (y_pred[0].clone() - (*y_ground).clone()).pow(2.))
-                .sum::<Value>()
-                * Value::new(1. / ys_pred.len() as f64, "n");
+            // Parallel gradient computation
+            let results: Vec<(Vec<f64>, f64)> = xs
+                .par_iter()
+                .zip(ys.par_iter())
+                .map(|(x, y)| compute_sample_gradients::<1, 1, 3, 1>(&snapshot, x, y))
+                .collect();
 
-            // regularization
-            loss = loss
-                + mlp.weights().map(|w| w.clone().pow(2.)).sum::<Value>()
-                    * Value::new(0.01, "lambda");
+            // Average gradients and loss
+            let mut avg_grads = vec![0.0; snapshot.len()];
+            let mut avg_loss = 0.0;
+            for (grads, loss) in &results {
+                avg_loss += loss;
+                for (ag, g) in avg_grads.iter_mut().zip(grads.iter()) {
+                    *ag += g;
+                }
+            }
+            avg_loss /= n_samples;
+            for ag in avg_grads.iter_mut() {
+                *ag /= n_samples;
+            }
+
+            last_loss = avg_loss;
 
             let lr = 0.01;
-
-            loss.backward();
+            mlp.zero_grad();
+            mlp.accumulate_gradients(&avg_grads);
             mlp.nudge(lr);
 
             if k % (no_of_epochs.max(10) / 10) == 0 {
+                // Quick forward pass for display predictions
+                let predictions: Vec<String> = xs
+                    .iter()
+                    .zip(ys.iter())
+                    .take(5)
+                    .map(|(x, y)| {
+                        let x_val = [Value::new(x[0], "x")];
+                        let y_pred = mlp.forward(&x_val);
+                        format!("{:.2} ~ {:.2}", y_pred[0].value(), y[0])
+                    })
+                    .collect();
+
                 println!(
-                    "Iteration: {k: >5} | Loss: {loss: >8.5} | Prediction: {ys:?}",
-                    loss = loss.value(),
-                    ys = xs
-                        .iter()
-                        .zip(ys_pred)
-                        .take(5)
-                        .map(|(_, (y_pred, y_ground))| format!(
-                            "{:.2} ~ {:.2}",
-                            y_pred[0].value(),
-                            y_ground.value()
-                        ))
-                        .collect::<Vec<_>>()
-                        .join(" | ")
+                    "Iteration: {k: >5} | Loss: {avg_loss: >8.5} | Prediction: {preds:?}",
+                    preds = predictions.join(" | ")
                 );
 
                 // serialize
@@ -111,8 +117,7 @@ fn main() {
         serialize(&model_filename, mlp.parameters(), total_epochs);
         let took = now.elapsed().as_secs_f64();
         println!(
-            "Final loss: {loss:#?} | Time: {took:.2}s | Total no. of epochs: {total_epochs}",
-            loss = loss.value()
+            "Final loss: {last_loss:#?} | Time: {took:.2}s | Total no. of epochs: {total_epochs}",
         );
     }
 }
